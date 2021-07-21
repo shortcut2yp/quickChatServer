@@ -9,7 +9,7 @@ import {
 
 const httpServer = createServer()
 //const clientUrl = "http://localhost:3000"
-const clientUrl = "https://determined-sammet-1be69e.netlify.app/"
+const clientUrl = "https://determined-sammet-1be69e.netlify.app"
 
 const io = new Server(httpServer, {
   cors: {
