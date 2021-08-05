@@ -1,6 +1,8 @@
 import { createServer } from "http"
 import { Server } from "socket.io"
 import { v4 as uuidv4 } from "uuid"
+import { findMessagesForUser, saveMessage } from "./src/messageStorage.js"
+import { setupWorker } from "@socket.io/sticky"
 import {
   saveSession,
   findSession,
@@ -43,6 +45,20 @@ io.use((socket, next) => {
   next()
 })
 
+function getMessagesForUser(userId) {
+  const messagesPerUser = new Map()
+  findMessagesForUser(userId).forEach((message) => {
+    const { from, to } = message
+    const otherUser = userId === from ? to : from
+    if (messagesPerUser.has(otherUser)) {
+      messagesPerUser.get(otherUser).push(message)
+    } else {
+      messagesPerUser.set(otherUser, [message])
+    }
+  })
+  return messagesPerUser
+}
+
 io.on("connection", async (socket) => {
   saveSession(socket.sessionId, {
     userId: socket.userId,
@@ -55,12 +71,14 @@ io.on("connection", async (socket) => {
   //get all connected users
   const users = []
 
+  const userMessages = getMessagesForUser(socket.userId)
   findAllSessions().forEach((session) => {
     if (session.userId !== socket.userId) {
       users.push({
         userId: session.userId,
         username: session.username,
         connected: session.connected,
+        messages: userMessages.get(session.userId) || [],
       })
     }
   })
@@ -81,12 +99,23 @@ io.on("connection", async (socket) => {
     username: socket.username,
   })
 
-  //new message event
-  socket.on("new message", (message) => {
-    socket.broadcast.emit("new message", {
-      userId: socket.userId,
-      username: socket.username,
-      message,
+  //orivate message event
+  socket.on("private message", ({ content, to }) => {
+    const message = {
+      from: socket.userId,
+      to,
+      content,
+    }
+    socket.to(to).emit("private message", message)
+    saveMessage(message)
+  })
+
+  socket.on("user messages", ({ userId, username }) => {
+    const userMessages = getMessagesForUser(socket.userId)
+    socket.emit("user messages", {
+      userId,
+      username,
+      messages: userMessages.get(userId) || [],
     })
   })
 
@@ -107,5 +136,9 @@ io.on("connection", async (socket) => {
   })
 })
 
-console.log("Listening to port...")
-httpServer.listen(process.env.PORT || 4000)
+// console.log("Listening to port...")
+// httpServer.listen(process.env.PORT || 4000)
+
+export function start() {
+  setupWorker(io)
+}
